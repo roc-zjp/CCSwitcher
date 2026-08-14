@@ -2,6 +2,8 @@ import AppKit
 import Combine
 import SwiftUI
 
+private let statusItemLog = FileLog("StatusItem")
+
 /// Owns the menu-bar `NSStatusItem` and its click-through `NSPopover`.
 ///
 /// We use `NSStatusItem` directly instead of SwiftUI's `MenuBarExtra` because
@@ -29,8 +31,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         self.menuBarConfig = config
         self.currentLocale = locale
 
+        // Step markers: if the app ever comes up with no menu bar icon again,
+        // these say which step of the install stalled instead of leaving a
+        // silent gap between "bootstrapping" and "status item installed".
+        statusItemLog.info("install: begin")
+
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.statusItem = statusItem
+        statusItemLog.info("install: status item created")
 
         // The strip reports its true intrinsic width back to us; we mirror it
         // onto the status item so the leading icon / trailing module never clip
@@ -40,6 +48,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             stripController.sizingOptions = [.intrinsicContentSize]
         }
         self.stripController = stripController
+        statusItemLog.info("install: strip hosting controller ready")
         observeStripRefreshes(appState: appState, config: config)
 
         let stripView = stripController.view
@@ -83,6 +92,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         popover.delegate = self
         self.popover = popover
         self.popoverController = popoverController
+        statusItemLog.info("install: done (button=\(statusItem.button != nil))")
     }
 
     /// Update the locale environment on all hosted SwiftUI views.

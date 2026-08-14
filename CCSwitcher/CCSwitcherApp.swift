@@ -21,6 +21,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didBootstrap = false
 
     override init() {
+        // First thing that touches the log, so the session header lands here
+        // rather than wherever the first log call happens to be. Without it, a
+        // stall this early leaves an empty log — indistinguishable from the
+        // login item never having fired at all.
+        launchLog.info("[AppDelegate] init")
+
         // Apply saved language preference before any UI loads
         let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "auto"
         if lang != "auto" {
