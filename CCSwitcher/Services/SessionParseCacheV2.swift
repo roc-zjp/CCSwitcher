@@ -69,7 +69,7 @@ struct ActivityDayContributionV2: Codable, Sendable {
 
 /// What pricing snapshot is currently driving cost output. Stamped on
 /// the envelope so it's debuggable from outside the app.
-struct PricingMeta: Codable, Sendable {
+struct PricingMeta: Codable, Sendable, Equatable {
     let source: String          // "bundle:abc1234" or "fresh:2026-05-15T03:00Z"
     let fetchedAt: Date?
 }
@@ -90,12 +90,29 @@ actor SessionParseCacheV2 {
     // max-output-wins; bump forces a full re-parse so old caches don't serve
     // entries missing the new field or deduped under the old first-wins rule.
     private static let currentVersion = 3
+
+    /// Marks a zlib-compressed envelope on disk. Plain-JSON caches written by
+    /// older builds start with `{`, so `ensureLoaded` tells the two apart and
+    /// still reads them — upgrading never throws away someone's cache. The
+    /// envelope compresses ~5x, which matters because it's rewritten in full on
+    /// every change (see the write-volume note at the `save()` call site).
+    private static let compressedMagic = Data("CCZ1".utf8)
+
+    /// A session file counts as "hot" while it was written within this window.
+    /// Only the hot layer is rewritten on every refresh (see `save`).
+    private static let hotWindow: TimeInterval = 24 * 3600
+
     private let claudeProjectsDir: String
-    private let cacheURL: URL
+    private let hotURL: URL
+    private let coldURL: URL
+    private let legacyCacheURL: URL
 
     private var files: [String: CachedFileV2] = [:]
     private var pricingMeta: PricingMeta = .init(source: "unknown", fetchedAt: nil)
     private var loaded = false
+    /// Paths in the cold layer as last written, so `save` can tell whether the
+    /// layer's membership changed without re-encoding it.
+    private var lastColdPaths: Set<String> = []
 
     private init() {
         self.claudeProjectsDir = NSHomeDirectory() + "/.claude/projects"
@@ -104,7 +121,9 @@ actor SessionParseCacheV2 {
             ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support")
         let dir = appSupport.appendingPathComponent("CCSwitcher", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        self.cacheURL = dir.appendingPathComponent("session-parse-cache-v2.json")
+        self.hotURL = dir.appendingPathComponent("session-parse-cache-v2-hot.json")
+        self.coldURL = dir.appendingPathComponent("session-parse-cache-v2-cold.json")
+        self.legacyCacheURL = dir.appendingPathComponent("session-parse-cache-v2.json")
     }
 
     // MARK: Public API
@@ -123,7 +142,9 @@ actor SessionParseCacheV2 {
         await PricingService.shared.reloadIfFreshChanged()
         // Capture the current pricing source for the envelope stamp.
         let src = await PricingService.shared.currentSource()
-        pricingMeta = stampFor(source: src)
+        let newPricingMeta = stampFor(source: src)
+        let pricingChanged = newPricingMeta != pricingMeta
+        pricingMeta = newPricingMeta
         // Trigger a TTL'd background refresh of the LiteLLM JSON. No-op if fresh.
         PricingService.shared.refreshInBackground()
 
@@ -150,7 +171,15 @@ actor SessionParseCacheV2 {
             + "pricing=\(pricingMeta.source)"
         )
 
-        save()
+        // Roughly 40% of refresh cycles touch nothing at all (measured over 200
+        // cycles); skip those outright rather than re-encoding the cache to
+        // produce an identical file.
+        guard !result.updates.isEmpty || evicted > 0 || pricingChanged else {
+            log.info("SAVE skipped (nothing changed) entries=\(files.count)")
+            return
+        }
+
+        save(changedPaths: Set(result.updates.keys))
     }
 
     /// Per-day, per-model cost summary. Applies global max-output-wins dedup
@@ -368,45 +397,132 @@ actor SessionParseCacheV2 {
     private func ensureLoaded() {
         guard !loaded else { return }
         loaded = true
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: cacheURL.path),
-              let data = try? Data(contentsOf: cacheURL) else {
-            log.info("LOAD path=\(cacheURL.path) status=missing")
+
+        // Preferred layout: two layers (see `save()`). The single-file cache
+        // written by older builds is migrated in and deleted.
+        let hot = readEnvelope(at: hotURL)
+        let cold = readEnvelope(at: coldURL)
+
+        if hot == nil && cold == nil {
+            guard let legacy = readEnvelope(at: legacyCacheURL) else {
+                log.info("LOAD path=\(hotURL.path) status=missing")
+                return
+            }
+            files = legacy.files
+            pricingMeta = legacy.pricing
+            lastColdPaths = []   // forces both layers to be written on first save
+            try? FileManager.default.removeItem(at: legacyCacheURL)
+            log.info("LOAD migrated legacy single-file cache entries=\(files.count)")
             return
         }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let envelope = try? decoder.decode(CacheEnvelopeV2.self, from: data) else {
-            log.warning("LOAD bytes=\(data.count) decode-failed, discarding")
-            return
-        }
-        guard envelope.version == Self.currentVersion else {
-            log.info("LOAD version=\(envelope.version) != current=\(Self.currentVersion), discarding")
-            return
-        }
-        files = envelope.files
-        pricingMeta = envelope.pricing
-        log.info("LOAD bytes=\(data.count) entries=\(files.count) pricing=\(envelope.pricing.source)")
+
+        files = (cold?.files ?? [:]).merging(hot?.files ?? [:]) { _, hotEntry in hotEntry }
+        pricingMeta = hot?.pricing ?? cold?.pricing ?? pricingMeta
+        lastColdPaths = Set((cold?.files ?? [:]).keys)
+        log.info("LOAD entries=\(files.count) (hot=\(hot?.files.count ?? 0) cold=\(cold?.files.count ?? 0)) pricing=\(pricingMeta.source)")
     }
 
-    private func save() {
+    private func readEnvelope(at url: URL) -> CacheEnvelopeV2? {
+        guard FileManager.default.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url) else { return nil }
+
+        var payload = data
+        if data.starts(with: Self.compressedMagic) {
+            let body = Data(data.dropFirst(Self.compressedMagic.count))
+            guard let inflated = try? (body as NSData).decompressed(using: .zlib) as Data else {
+                log.warning("LOAD \(url.lastPathComponent) bytes=\(data.count) decompress-failed, discarding")
+                return nil
+            }
+            payload = inflated
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let envelope = try? decoder.decode(CacheEnvelopeV2.self, from: payload) else {
+            log.warning("LOAD \(url.lastPathComponent) bytes=\(data.count) decode-failed, discarding")
+            return nil
+        }
+        guard envelope.version == Self.currentVersion else {
+            log.info("LOAD \(url.lastPathComponent) version=\(envelope.version) != current=\(Self.currentVersion), discarding")
+            return nil
+        }
+        return envelope
+    }
+
+    /// Persists the cache as two layers, split by how recently each session file
+    /// was written:
+    ///
+    ///   hot  — touched within `hotWindow`; small and rewritten every time
+    ///   cold — everything older; rewritten only when its membership or contents
+    ///          actually change (a session resumes, ages out, or is deleted)
+    ///
+    /// The split exists because the shape of this data is extreme: of ~1200
+    /// cached session files, ~10 are touched on a given day, so ~96% of the
+    /// envelope is history that can never change. Rewriting all of it every
+    /// refresh cycle is what drove this app past macOS's 2 GB/day disk-write
+    /// limit for a background agent.
+    ///
+    /// `changedPaths` is the set of files re-parsed this cycle; a change to any
+    /// file that now lives in the cold layer forces that layer to be rewritten.
+    private func save(changedPaths: Set<String>) {
+        let cutoff = Date().timeIntervalSince1970 - Self.hotWindow
+        var hotFiles: [String: CachedFileV2] = [:]
+        var coldFiles: [String: CachedFileV2] = [:]
+        for (path, file) in files {
+            if file.mtimeUnix >= cutoff {
+                hotFiles[path] = file
+            } else {
+                coldFiles[path] = file
+            }
+        }
+
+        let coldPaths = Set(coldFiles.keys)
+        let coldChanged = coldPaths != lastColdPaths
+            || !changedPaths.isDisjoint(with: coldPaths)
+            || !FileManager.default.fileExists(atPath: coldURL.path)
+
+        let hotBytes = writeEnvelope(files: hotFiles, to: hotURL)
+        var coldBytes = -1
+        if coldChanged {
+            coldBytes = writeEnvelope(files: coldFiles, to: coldURL)
+            if coldBytes >= 0 { lastColdPaths = coldPaths }
+        }
+
+        log.info(
+            "SAVE hot=\(hotBytes)B/\(hotFiles.count) "
+            + "cold=\(coldChanged ? "\(coldBytes)B/\(coldFiles.count)" : "unchanged/\(coldFiles.count)")"
+        )
+    }
+
+    /// Writes one layer, zlib-compressed. Returns bytes written, or -1 on failure.
+    private func writeEnvelope(files layer: [String: CachedFileV2], to url: URL) -> Int {
         let envelope = CacheEnvelopeV2(
             version: Self.currentVersion,
             lastUpdated: Date(),
             pricing: pricingMeta,
-            files: files
+            files: layer
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(envelope) else {
-            log.error("SAVE failed to encode")
-            return
+            log.error("SAVE \(url.lastPathComponent) failed to encode")
+            return -1
         }
+        // Compression is an optimization, never a correctness requirement: if it
+        // fails, fall back to plain JSON, which `readEnvelope` still reads.
+        let payload: Data
+        if let deflated = try? (data as NSData).compressed(using: .zlib) as Data {
+            payload = Self.compressedMagic + deflated
+        } else {
+            payload = data
+        }
+
         do {
-            try data.write(to: cacheURL, options: .atomic)
-            log.info("SAVE bytes=\(data.count) entries=\(files.count)")
+            try payload.write(to: url, options: .atomic)
+            return payload.count
         } catch {
-            log.error("SAVE failed: \(error.localizedDescription)")
+            log.error("SAVE \(url.lastPathComponent) failed: \(error.localizedDescription)")
+            return -1
         }
     }
 
