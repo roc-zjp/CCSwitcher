@@ -46,7 +46,7 @@ enum URLCommandHandler {
             let query = param("account") ?? param("id") ?? param("name")
             guard let query, !query.isEmpty else {
                 write(nonce: nonce, action: action, ok: false,
-                      error: "缺少参数：account=<名字|机构|邮箱> 或 id=<账号 UUID>")
+                      error: String(localized: "Missing parameter: account=<label|org|email> or id=<uuid>.", bundle: L10n.bundle))
                 return
             }
             Task { await performSwitch(query: query, nonce: nonce, action: action, appState: appState) }
@@ -55,7 +55,7 @@ enum URLCommandHandler {
             let active = appState.activeAccount
             write(nonce: nonce, action: action, ok: active != nil,
                   account: active,
-                  error: active == nil ? "当前没有已识别的账号" : nil)
+                  error: active == nil ? String(localized: "No account is currently identified.", bundle: L10n.bundle) : nil)
 
         case "list":
             write(nonce: nonce, action: action, ok: true,
@@ -64,7 +64,7 @@ enum URLCommandHandler {
 
         default:
             write(nonce: nonce, action: action, ok: false,
-                  error: "未知指令「\(action)」，可用：use / current / list")
+                  error: String(localized: "Unknown command \(action). Available: use / current / list.", bundle: L10n.bundle))
         }
     }
 
@@ -90,7 +90,7 @@ enum URLCommandHandler {
                 write(nonce: nonce, action: action, ok: true, account: target, warning: message)
             } else {
                 write(nonce: nonce, action: action, ok: false, account: target,
-                      error: message ?? "切换没有生效——可能有另一次切换或登录正在进行，稍后重试")
+                      error: message ?? String(localized: "The switch did not take effect. Another switch or login may be in progress; try again shortly.", bundle: L10n.bundle))
             }
         }
     }
@@ -105,7 +105,7 @@ enum URLCommandHandler {
 
     static func resolve(_ query: String, in accounts: [Account]) -> Resolution {
         guard !accounts.isEmpty else {
-            return .failure("CCSwitcher 里还没有保存任何账号")
+            return .failure(String(localized: "No accounts saved in CCSwitcher yet.", bundle: L10n.bundle))
         }
         let q = query.lowercased()
 
@@ -128,8 +128,8 @@ enum URLCommandHandler {
 
         switch hits.count {
         case 1: return .matched(hits[0])
-        case 0: return .failure("没有匹配「\(query)」的账号，可用：\(accounts.map(label).joined(separator: "、"))")
-        default: return .failure("「\(query)」同时匹配 \(hits.map(label).joined(separator: "、"))，请说得更具体")
+        case 0: return .failure(String(localized: "No account matches \(query). Available: \(accounts.map(label).joined(separator: ", "))", bundle: L10n.bundle))
+        default: return .failure(String(localized: "\(query) matches several accounts: \(hits.map(label).joined(separator: ", ")). Be more specific.", bundle: L10n.bundle))
         }
     }
 

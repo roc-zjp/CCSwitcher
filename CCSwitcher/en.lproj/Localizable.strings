@@ -183,3 +183,12 @@
 "Updated %@ ago" = "Updated %@ ago";
 "Could not save the refreshed sign-in; will retry automatically." = "Could not save the refreshed sign-in; will retry automatically.";
 "Credential storage is temporarily unavailable. Try again shortly." = "Credential storage is temporarily unavailable. Try again shortly.";
+
+/* Command-line switching (ccswitcher:// URL handler) */
+"Missing parameter: account=<label|org|email> or id=<uuid>." = "Missing parameter: account=<label|org|email> or id=<uuid>.";
+"No account is currently identified." = "No account is currently identified.";
+"Unknown command %@. Available: use / current / list." = "Unknown command %@. Available: use / current / list.";
+"The switch did not take effect. Another switch or login may be in progress; try again shortly." = "The switch did not take effect. Another switch or login may be in progress; try again shortly.";
+"No accounts saved in CCSwitcher yet." = "No accounts saved in CCSwitcher yet.";
+"No account matches %@. Available: %@" = "No account matches %@. Available: %@";
+"%@ matches several accounts: %@. Be more specific." = "%@ matches several accounts: %@. Be more specific.";

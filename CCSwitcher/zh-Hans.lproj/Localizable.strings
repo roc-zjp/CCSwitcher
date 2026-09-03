@@ -179,3 +179,12 @@
 "Updated %@ ago" = "%@前更新";
 "Could not save the refreshed sign-in; will retry automatically." = "无法保存刷新后的登录凭据；将自动重试。";
 "Credential storage is temporarily unavailable. Try again shortly." = "凭据存储暂时不可用。请稍后重试。";
+
+/* Command-line switching (ccswitcher:// URL handler) */
+"Missing parameter: account=<label|org|email> or id=<uuid>." = "缺少参数：account=<标签|机构|邮箱> 或 id=<UUID>。";
+"No account is currently identified." = "当前没有识别到账号。";
+"Unknown command %@. Available: use / current / list." = "未知指令 %@。可用：use / current / list。";
+"The switch did not take effect. Another switch or login may be in progress; try again shortly." = "切换未生效。可能有另一次切换或登录正在进行，请稍后重试。";
+"No accounts saved in CCSwitcher yet." = "CCSwitcher 中还没有保存任何账号。";
+"No account matches %@. Available: %@" = "没有匹配 %1$@ 的账号。可用：%2$@";
+"%@ matches several accounts: %@. Be more specific." = "%1$@ 匹配到多个账号：%2$@。请说得更具体。";

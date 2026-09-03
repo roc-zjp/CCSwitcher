@@ -14,6 +14,7 @@ CCSwitcher 是一款轻量级的纯 macOS 菜单栏应用程序，旨在帮助�
 
 - **不中断的账户切换**：原生 `claude auth logout` 每次切换都要走一次完整 OAuth，前一个账户的凭据会被清除。CCSwitcher 为每个账户保留独立的备份（钥匙串 token + `~/.claude.json` 的 `oauthAccount` 块），切换时原子性地替换两者——所有已添加账户的凭据都不会丢失，随时一键切回，不打断你的多账户工作流。（注：进行中的 `claude` 会话会在下一次 API 调用时使用新切换的凭据，这是 Claude CLI 自身的行为。）
 - **多账户管理**：在 macOS 菜单栏中一键添加和切换不同的 Claude Code 账户。
+- **命令行切换**：脚本里一句 `ccswitcher use Work` 即可切换；只装了 App 时也能用 `open "ccswitcher://use?account=Work"`。切换在 App 内执行，因此与点菜单享有同样的备份、校验与钥匙串信任。详见 [docs/cli.md](docs/cli.md)。
 - **用量仪表盘**：直接在菜单栏下拉菜单中实时监控 Claude API 使用限额（5 小时会话窗口和每周窗口），并展示当日的 API 等价费用与活动统计（轮次、活跃分钟数、写入行数、模型分布）。
 - **桌面小组件**：原生 macOS 桌面小组件，支持小、中、大三种尺寸，展示账户用量、费用和活动统计。还包含环形变体，方便一目了然地监控使用情况。
 - **应用内自动更新**：基于 [Sparkle 2.x](https://sparkle-project.org/)。新版本静默原子安装——无需拖拽 DMG，无需 Finder 对话框。

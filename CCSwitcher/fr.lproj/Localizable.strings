@@ -179,3 +179,12 @@
 "Updated %@ ago" = "Mis à jour il y a %@";
 "Could not save the refreshed sign-in; will retry automatically." = "Impossible d'enregistrer les identifiants actualisés ; nouvelle tentative automatique.";
 "Credential storage is temporarily unavailable. Try again shortly." = "Le stockage des identifiants est temporairement indisponible. Réessayez dans un instant.";
+
+/* Command-line switching (ccswitcher:// URL handler) */
+"Missing parameter: account=<label|org|email> or id=<uuid>." = "Paramètre manquant : account=<libellé|organisation|e-mail> ou id=<UUID>.";
+"No account is currently identified." = "Aucun compte n'est actuellement identifié.";
+"Unknown command %@. Available: use / current / list." = "Commande inconnue %@. Disponibles : use / current / list.";
+"The switch did not take effect. Another switch or login may be in progress; try again shortly." = "Le changement n'a pas pris effet. Un autre changement ou une connexion est peut-être en cours ; réessayez sous peu.";
+"No accounts saved in CCSwitcher yet." = "Aucun compte enregistré dans CCSwitcher pour l'instant.";
+"No account matches %@. Available: %@" = "Aucun compte ne correspond à %1$@. Disponibles : %2$@";
+"%@ matches several accounts: %@. Be more specific." = "%1$@ correspond à plusieurs comptes : %2$@. Soyez plus précis.";

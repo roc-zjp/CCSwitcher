@@ -1,32 +1,39 @@
 #!/usr/bin/env python3
-"""ccswitcher —— CCSwitcher 的命令行入口，一条指令切换 Claude Code 账号。
+"""ccswitcher - switch Claude Code accounts from the command line.
 
-    ccswitcher                 列出账号（★ 是当前生效的，前面的数字可直接用来切）
+    ccswitcher                 list accounts (* marks the active one; the
+                               number in front works as a shorthand)
     ccswitcher ls [--json]
     ccswitcher current [--json]
-    ccswitcher use <名字> [--json] [-q]
-    ccswitcher <名字>          等价于 use <名字>
+    ccswitcher use <name> [--json] [-q]
+    ccswitcher <name>          same as use <name>
 
-不想记名字时有三条捷径：
+Three shorthands when you would rather not type a name:
 
-    ccswitcher next            切到下一个（两个账号时就是来回切）
-    ccswitcher use 2           按 ls 里的序号
-    ccswitcher -               切回上一个待过的账号（像 cd -）
+    ccswitcher next            switch to the next account (with two accounts,
+                               that is simply "the other one")
+    ccswitcher use 2           by the number shown in the listing
+    ccswitcher -               back to the account you came from (like cd -)
 
-名字可以是自定义标签、机构名（Team）、邮箱或账号 UUID，忽略大小写、支持子串；
-匹配到多个会让你说得更具体——这条命令在换凭证，猜错了代价比问一句大。
+A name can be the custom label, the organization (Team), the email or the
+account UUID - case-insensitive, substring allowed. An ambiguous name is
+refused rather than guessed: this command swaps credentials, so landing on
+the wrong account is worse than asking.
 
-工作方式：把请求交给 CCSwitcher.app 自己去执行（ccswitcher:// URL），app 没开会
-被自动拉起。切换因此走的是和菜单点击完全相同的代码路径，钥匙串看到的也是它本来
-就信任的那个 app——独立程序去碰同一批钥匙串条目，每台机器都会弹授权。
+How it works: the request is handed to CCSwitcher.app itself over the
+`ccswitcher://` URL scheme, launching it if needed. The switch therefore runs
+through exactly the same code path as a menu click, and the keychain sees the
+application it already trusts - a separate binary reaching for those items
+would prompt for authorization on every machine.
 
-app 把结果写进 ~/.ccswitcher/cli-result.json，本脚本按 nonce 认领自己那次的结果，
-所以下面这些在脚本里都成立：
+The app writes the outcome to ~/.ccswitcher/cli-result.json; this wrapper
+claims its own by nonce, which is what makes the exit code meaningful:
 
-    ccswitcher use Work && claude -p "..."     # 失败就不会往下走
+    ccswitcher use Work && claude -p "..."
     test "$(ccswitcher current)" = "Work" || ccswitcher use Work
 
-退出码：0 成功 / 1 用法或匹配问题 / 2 app 起不来或超时 / 3 切换没生效
+Exit codes: 0 ok / 1 usage, no match or ambiguous / 2 app unreachable or
+timed out / 3 the switch did not take effect.
 """
 
 import json
@@ -36,6 +43,66 @@ import sys
 import time
 import urllib.parse
 import uuid
+
+# Messages the wrapper itself produces. Anything coming back from the app is
+# already localized there, so only these need a table.
+#
+# Which language: follow the app, not the shell. `LANG` is routinely C.UTF-8 or
+# unset on a Mac whose UI is Chinese, so keying off it would print English next
+# to the app's Chinese. Order: explicit override, the app's own setting, then
+# the system UI language.
+_zh_cache = None
+
+
+def _zh():
+    global _zh_cache
+    if _zh_cache is None:
+        override = os.environ.get("CCSWITCHER_LANG")
+        if override:
+            _zh_cache = override.lower().startswith("zh")
+        else:
+            lang = _defaults_read(["me.xueshi.ccswitcher", "appLanguage"]) or ""
+            if not lang or lang == "auto":
+                lang = _defaults_read(["-g", "AppleLanguages"]) or ""
+            _zh_cache = "zh" in lang.lower()
+    return _zh_cache
+
+
+def _defaults_read(args):
+    try:
+        r = subprocess.run(["defaults", "read"] + args, capture_output=True, text=True, timeout=5)
+        return r.stdout.strip() if r.returncode == 0 else None
+    except Exception:
+        return None
+
+_MSG = {
+    "no_handler": ("No application can handle ccswitcher:// — CCSwitcher is not installed, "
+                   "or has never been launched since it was.",
+                   "系统找不到能处理 ccswitcher:// 的应用——CCSwitcher 没装，或装完还没启动过一次"),
+    "open_failed": ("Could not reach CCSwitcher: {}", "唤起 CCSwitcher 失败：{}"),
+    "timeout": ("Timed out waiting for CCSwitcher — it may be busy with another switch, "
+                "or stuck starting up.",
+                "等 CCSwitcher 回话超时——它可能正忙着另一次切换，或启动被卡住"),
+    "no_accounts": ("No accounts saved in CCSwitcher yet.", "CCSwitcher 里还没有保存任何账号"),
+    "unknown_current": ("Current account unknown.", "当前账号未知"),
+    "usage": ("Usage: ccswitcher use <name|number|next|->", "用法：ccswitcher use <名字|序号|next|->"),
+    "no_next": ("Only one account — there is no next one.", "只有一个账号，没有下一个可切"),
+    "no_last": ("No previous account yet — switch once before using `-`.",
+                "还没有上一个账号可回——先切一次再用 `-`"),
+    "last_gone": ("The previous account is no longer in the list.", "上一个账号已经不在列表里了"),
+    "out_of_range": ("Number out of range: there are only {} accounts.", "序号超出范围：只有 {} 个账号"),
+    "switch_failed": ("Switch failed", "切换失败"),
+    "switched": ("Switched to {} ({})", "已切到 {}（{}）"),
+    "global_note": ("Takes effect globally: a running claude session bills its next request "
+                    "to the new account",
+                    "全局生效：正在跑的 claude 会话下一次请求就会记到新账号"),
+}
+
+
+def T(key, *args):
+    text = _MSG[key][1 if _zh() else 0]
+    return text.format(*args) if args else text
+
 
 RESULT = os.path.expanduser("~/.ccswitcher/cli-result.json")
 # 切走前的账号 id，给 `ccswitcher -` 用。app 不记这个，所以由包装脚本自己存。
@@ -60,8 +127,8 @@ def call(action, params=None, timeout=None):
     if r.returncode != 0:
         err = (r.stderr or "").strip()
         if "Unable to find application" in err or "does not support" in err:
-            die("系统找不到能处理 ccswitcher:// 的应用——CCSwitcher 没装，或装完还没启动过一次", 2)
-        die(f"唤起 CCSwitcher 失败：{err or r.returncode}", 2)
+            die(T("no_handler"), 2)
+        die(T("open_failed", err or r.returncode), 2)
 
     deadline = time.time() + (timeout or TIMEOUT.get(action, 20.0))
     while time.time() < deadline:
@@ -74,7 +141,7 @@ def call(action, params=None, timeout=None):
             pass
         time.sleep(0.1)
 
-    die("等 CCSwitcher 回话超时——它可能正忙着另一次切换，或启动被卡住", 2)
+    die(T("timeout"), 2)
 
 
 def fmt(accounts):
@@ -87,7 +154,7 @@ def accounts_now():
     """账号列表 + 当前 active 的下标（没有 active 时为 None）。"""
     accounts = call("list").get("accounts", [])
     if not accounts:
-        die("CCSwitcher 里还没有保存任何账号", 1)
+        die(T("no_accounts"), 1)
     active = next((i for i, a in enumerate(accounts) if a.get("active")), None)
     return accounts, active
 
@@ -136,12 +203,12 @@ def main():
         elif acct:
             print(acct.get("label", "?"))
         else:
-            die(data.get("error") or "当前账号未知", 1)
+            die(data.get("error") or T("unknown_current"), 1)
         return
 
     # use
     if len(argv) < 2:
-        die("用法：ccswitcher use <名字|序号|next|->", 1)
+        die(T("usage"), 1)
     want = " ".join(argv[1:])
 
     # 名字之外的三条捷径在本地解成账号 id；名字匹配仍交给 app，免得两边各写一套
@@ -149,7 +216,7 @@ def main():
     if want in ("next", "toggle"):
         accounts, active = accounts_now()
         if len(accounts) < 2:
-            die("只有一个账号，没有下一个可切", 1)
+            die(T("no_next"), 1)
         remember_previous(accounts, active)
         target = accounts[((active or 0) + 1) % len(accounts)]
         data = call("use", {"id": target["id"]})
@@ -158,17 +225,17 @@ def main():
             with open(LAST) as f:
                 last_id = f.read().strip()
         except OSError:
-            die("还没有上一个账号可回——先切一次再用 `-`", 1)
+            die(T("no_last"), 1)
         accounts, active = accounts_now()
         if not any(a["id"] == last_id for a in accounts):
-            die("上一个账号已经不在列表里了", 1)
+            die(T("last_gone"), 1)
         remember_previous(accounts, active)
         data = call("use", {"id": last_id})
     elif want.isdigit():
         accounts, active = accounts_now()
         n = int(want)
         if not 1 <= n <= len(accounts):
-            die(f"序号超出范围：只有 {len(accounts)} 个账号", 1)
+            die(T("out_of_range", len(accounts)), 1)
         remember_previous(accounts, active)
         data = call("use", {"id": accounts[n - 1]["id"]})
     else:
@@ -179,13 +246,13 @@ def main():
     if as_json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
     elif not data.get("ok"):
-        print(f"✗ {data.get('error') or '切换失败'}", file=sys.stderr)
+        print(f"✗ {data.get('error') or T('switch_failed')}", file=sys.stderr)
     elif not quiet:
         acct = data.get("account") or {}
-        print(f"✓ 已切到 {acct.get('label','?')}（{acct.get('email','?')}）")
+        print("✓ " + T("switched", acct.get("label", "?"), acct.get("email", "?")))
         if data.get("warning"):
             print(f"   ⚠️  {data['warning']}")
-        print("   全局生效：正在跑的 claude 会话下一次请求就会记到新账号")
+        print("   " + T("global_note"))
 
     if not data.get("ok"):
         sys.exit(3 if data.get("account") else 1)
