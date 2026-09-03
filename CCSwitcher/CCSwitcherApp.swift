@@ -43,6 +43,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bootstrap()
     }
 
+    /// Entry point for `ccswitcher://` URLs — what makes a one-command switch
+    /// possible (`open "ccswitcher://use?account=Work"`).
+    ///
+    /// A URL can arrive together with a cold-start launch, i.e. before (or
+    /// alongside) `applicationDidFinishLaunching`. `AppState.init` loads the
+    /// accounts synchronously, so the switch is safe either way; bootstrapping
+    /// here as well means a URL-triggered launch still installs the status item
+    /// instead of leaving a headless process behind.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        launchLog.info("[application:open] \(urls.count) url(s)")
+        bootstrap()
+        for url in urls {
+            URLCommandHandler.handle(url, appState: appState)
+        }
+    }
+
     /// Installs the status item and starts usage tracking. Idempotent, so the
     /// keepalive window can call it again as a safety net without side effects.
     func bootstrap() {
