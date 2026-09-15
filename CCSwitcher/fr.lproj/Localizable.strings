@@ -188,3 +188,14 @@
 "No accounts saved in CCSwitcher yet." = "Aucun compte enregistré dans CCSwitcher pour l'instant.";
 "No account matches %@. Available: %@" = "Aucun compte ne correspond à %1$@. Disponibles : %2$@";
 "%@ matches several accounts: %@. Be more specific." = "%1$@ correspond à plusieurs comptes : %2$@. Soyez plus précis.";
+
+
+// Quota pre-warm
+"Pre-warm" = "Préchauffage";
+"Open the quota window every morning" = "Ouvrir la fenêtre de quota chaque matin";
+"Warm up at" = "Préchauffer à";
+"Weekdays only" = "Jours ouvrés uniquement";
+"The 5-hour window is created by an account's first request, not by the clock — so starting work at 9am gives you a 9am–2pm window whose tail is spent at lunch. One tiny request at 8am puts the boundary at 1pm instead, where your lunch break already is. Every account is warmed where it stands; the active one is never switched." = "La fenêtre de 5 heures est créée par la première requête d'un compte, pas par l'horloge : commencer à 9 h donne une fenêtre 9 h–14 h dont la fin se consume pendant la pause déjeuner. Une requête minuscule à 8 h place la limite à 13 h, là où se trouve déjà votre pause. Chaque compte est préchauffé sur place ; le compte actif n'est jamais changé.";
+"Warm up now" = "Préchauffer maintenant";
+"Warmed %1$d account(s) at %2$@" = "%1$d compte(s) préchauffé(s) à %2$@";
+"Warmed %1$d, failed %2$d at %3$@" = "%1$d préchauffé(s), %2$d échec(s) à %3$@";

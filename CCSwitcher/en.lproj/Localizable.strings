@@ -192,3 +192,14 @@
 "No accounts saved in CCSwitcher yet." = "No accounts saved in CCSwitcher yet.";
 "No account matches %@. Available: %@" = "No account matches %@. Available: %@";
 "%@ matches several accounts: %@. Be more specific." = "%@ matches several accounts: %@. Be more specific.";
+
+
+// Quota pre-warm
+"Pre-warm" = "Pre-warm";
+"Open the quota window every morning" = "Open the quota window every morning";
+"Warm up at" = "Warm up at";
+"Weekdays only" = "Weekdays only";
+"The 5-hour window is created by an account's first request, not by the clock — so starting work at 9am gives you a 9am–2pm window whose tail is spent at lunch. One tiny request at 8am puts the boundary at 1pm instead, where your lunch break already is. Every account is warmed where it stands; the active one is never switched." = "The 5-hour window is created by an account's first request, not by the clock — so starting work at 9am gives you a 9am–2pm window whose tail is spent at lunch. One tiny request at 8am puts the boundary at 1pm instead, where your lunch break already is. Every account is warmed where it stands; the active one is never switched.";
+"Warm up now" = "Warm up now";
+"Warmed %1$d account(s) at %2$@" = "Warmed %1$d account(s) at %2$@";
+"Warmed %1$d, failed %2$d at %3$@" = "Warmed %1$d, failed %2$d at %3$@";

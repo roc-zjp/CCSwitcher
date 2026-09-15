@@ -12,6 +12,10 @@ struct SettingsView: View {
     @AppStorage("appLanguage") private var appLanguage = "auto"
     @AppStorage("autoSwitchEnabled") private var autoSwitchEnabled = false
     @AppStorage("autoSwitchThreshold") private var autoSwitchThreshold = 90.0
+    @AppStorage("prewarmEnabled") private var prewarmEnabled = false
+    @AppStorage("prewarmHour") private var prewarmHour = 8
+    @AppStorage("prewarmMinute") private var prewarmMinute = 0
+    @AppStorage("prewarmWeekdaysOnly") private var prewarmWeekdaysOnly = true
     @State private var launchAtLogin = false
 
     var body: some View {
@@ -78,6 +82,35 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Pre-warm") {
+                Toggle("Open the quota window every morning", isOn: $prewarmEnabled)
+                    .onChange(of: prewarmEnabled) { _, _ in
+                        appState.startPrewarmScheduler()
+                    }
+                if prewarmEnabled {
+                    DatePicker("Warm up at", selection: prewarmTime, displayedComponents: .hourAndMinute)
+                    Toggle("Weekdays only", isOn: $prewarmWeekdaysOnly)
+                    Text("The 5-hour window is created by an account's first request, not by the clock — so starting work at 9am gives you a 9am–2pm window whose tail is spent at lunch. One tiny request at 8am puts the boundary at 1pm instead, where your lunch break already is. Every account is warmed where it stands; the active one is never switched.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button("Warm up now") {
+                            Task { await appState.runPrewarm() }
+                        }
+                        .disabled(appState.isPrewarming)
+                        if appState.isPrewarming {
+                            ProgressView().controlSize(.small)
+                        }
+                        Spacer()
+                        if let status = appState.prewarmStatus {
+                            Text(status)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
             Section("Account display") {
                 Toggle("Show full email address", isOn: $showFullEmail)
             }
@@ -106,6 +139,21 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    /// Bridge the two stored Ints to the Date a DatePicker wants. Only the
+    /// hour/minute components are ever read back, so the date part is arbitrary.
+    private var prewarmTime: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(bySettingHour: prewarmHour, minute: prewarmMinute, second: 0, of: Date()) ?? Date()
+            },
+            set: { newValue in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+                prewarmHour = c.hour ?? 8
+                prewarmMinute = c.minute ?? 0
+            }
+        )
     }
 
     // MARK: - Menu Bar Tab

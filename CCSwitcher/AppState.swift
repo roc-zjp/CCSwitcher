@@ -199,6 +199,141 @@ final class AppState: ObservableObject {
         refreshTimer = nil
     }
 
+    // MARK: - Quota pre-warm
+
+    /// Status line for the settings pane ("Warmed 2 accounts at 08:00").
+    @Published var prewarmStatus: String?
+    /// Guards against a manual click landing on top of the scheduled run.
+    @Published var isPrewarming = false
+
+    private var prewarmTimer: Timer?
+
+    // Settings, written by SettingsView via @AppStorage. Read through
+    // `object(forKey:)` where the default is not the zero value, so that "never
+    // configured" is not indistinguishable from "explicitly set to 0/false".
+    private var prewarmEnabled: Bool { UserDefaults.standard.bool(forKey: "prewarmEnabled") }
+    private var prewarmHour: Int { UserDefaults.standard.object(forKey: "prewarmHour") as? Int ?? 8 }
+    private var prewarmMinute: Int { UserDefaults.standard.object(forKey: "prewarmMinute") as? Int ?? 0 }
+    private var prewarmWeekdaysOnly: Bool { UserDefaults.standard.object(forKey: "prewarmWeekdaysOnly") as? Bool ?? true }
+    private let prewarmLastRunKey = "prewarmLastRunDay"
+
+    /// Poll once a minute rather than scheduling a one-shot timer for 08:00.
+    ///
+    /// A one-shot timer assumes the Mac is awake and the clock is monotonic;
+    /// neither holds. Sleeping through the fire time, waking late, changing time
+    /// zone, or relaunching the app would each silently skip a day. A cheap
+    /// minute tick asking "is it time, and has today already run?" survives all
+    /// of them - `PrewarmSchedule` keeps that decision pure and testable.
+    func startPrewarmScheduler() {
+        stopPrewarmScheduler()
+        prewarmTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.prewarmTick() }
+        }
+        // The launch itself is a tick: relaunching at 08:05 should warm up now,
+        // not at 08:06.
+        Task { @MainActor in await prewarmTick() }
+    }
+
+    func stopPrewarmScheduler() {
+        prewarmTimer?.invalidate()
+        prewarmTimer = nil
+    }
+
+    private func prewarmTick() async {
+        guard prewarmEnabled else { return }
+        guard PrewarmSchedule.shouldRun(
+            now: Date(),
+            hour: prewarmHour,
+            minute: prewarmMinute,
+            weekdaysOnly: prewarmWeekdaysOnly,
+            lastRunDay: UserDefaults.standard.string(forKey: prewarmLastRunKey)
+        ) else { return }
+        await runPrewarm()
+    }
+
+    /// Open the 5-hour window on every account, in place.
+    ///
+    /// Each account is warmed with its own token - the active one from the
+    /// keychain, the others from their backups - so nothing here touches the
+    /// live credentials. That is the whole reason this belongs in the app:
+    /// a shell script can only warm an account by switching to it, which
+    /// silently redirects whatever Claude Code session the user has running.
+    func runPrewarm() async {
+        guard !isPrewarming else { return }
+        isPrewarming = true
+        defer { isPrewarming = false }
+
+        var warmed = 0
+        var failed = 0
+        var isFirstRequest = true
+
+        for account in accounts {
+            // Small stagger: /v1/messages is far more forgiving than the usage
+            // endpoint, but two requests in the same millisecond still buy us
+            // nothing.
+            if !isFirstRequest { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+            isFirstRequest = false
+
+            if await ignite(account) { warmed += 1 } else { failed += 1 }
+        }
+
+        // Only claim the day once something actually succeeded, so a run that
+        // failed outright (asleep, offline, DNS not up yet) is retried by the
+        // next tick instead of being written off until tomorrow.
+        if warmed > 0 {
+            UserDefaults.standard.set(PrewarmSchedule.dayStamp(Date()), forKey: prewarmLastRunKey)
+        }
+
+        let at = Self.prewarmTimeFormatter.string(from: Date())
+        prewarmStatus = failed == 0
+            ? String(format: String(localized: "Warmed %1$d account(s) at %2$@", bundle: L10n.bundle), warmed, at)
+            : String(format: String(localized: "Warmed %1$d, failed %2$d at %3$@", bundle: L10n.bundle), warmed, failed, at)
+        log.info("[prewarm] warmed=\(warmed) failed=\(failed)")
+
+        // The windows just moved; let the UI catch up.
+        await refresh()
+    }
+
+    /// Warm one account, refreshing its token in place if it has expired.
+    private func ignite(_ account: Account) async -> Bool {
+        let tokenJSON = account.isActive
+            ? keychain.readClaudeToken()
+            : keychain.getAccountBackup(forAccountId: account.id.uuidString)?.token
+        guard let tokenJSON, let accessToken = ClaudeService.extractAccessToken(from: tokenJSON) else {
+            log.warning("[prewarm] no token for \(account.email)")
+            return false
+        }
+
+        do {
+            try await claudeService.ignite(accessToken: accessToken)
+            return true
+        } catch ClaudeService.UsageError.expired where !account.isActive {
+            // Same recovery the usage poller uses: a backup token that expired
+            // overnight is exactly the case a morning pre-warm runs into.
+            guard case .refreshed(let refreshed) = await refreshBackupInPlace(for: account),
+                  let newToken = ClaudeService.extractAccessToken(from: refreshed) else {
+                log.warning("[prewarm] \(account.email): token expired, refresh failed")
+                return false
+            }
+            do {
+                try await claudeService.ignite(accessToken: newToken)
+                return true
+            } catch {
+                log.warning("[prewarm] \(account.email) after refresh: \(error.localizedDescription)")
+                return false
+            }
+        } catch {
+            log.warning("[prewarm] \(account.email): \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private static let prewarmTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f
+    }()
+
     // MARK: - Account Management
 
     /// Locate an account by (email, orgId). The same email can belong to

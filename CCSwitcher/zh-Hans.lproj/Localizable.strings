@@ -188,3 +188,14 @@
 "No accounts saved in CCSwitcher yet." = "CCSwitcher 中还没有保存任何账号。";
 "No account matches %@. Available: %@" = "没有匹配 %1$@ 的账号。可用：%2$@";
 "%@ matches several accounts: %@. Be more specific." = "%1$@ 匹配到多个账号：%2$@。请说得更具体。";
+
+
+// Quota pre-warm
+"Pre-warm" = "额度预热";
+"Open the quota window every morning" = "每天早上开启额度窗口";
+"Warm up at" = "预热时间";
+"Weekdays only" = "仅工作日";
+"The 5-hour window is created by an account's first request, not by the clock — so starting work at 9am gives you a 9am–2pm window whose tail is spent at lunch. One tiny request at 8am puts the boundary at 1pm instead, where your lunch break already is. Every account is warmed where it stands; the active one is never switched." = "5 小时窗口是由账号的第一次请求创建的，与时钟无关——9 点上班才发第一条，窗口就是 9:00–14:00，尾巴正好耗在午休里。早上 8 点发一条极小的请求，边界就落到 13:00，与你的午休重合。每个账号都在原地预热，绝不切换当前账号。";
+"Warm up now" = "立即预热";
+"Warmed %1$d account(s) at %2$@" = "%2$@ 已预热 %1$d 个账号";
+"Warmed %1$d, failed %2$d at %3$@" = "%3$@ 已预热 %1$d 个，失败 %2$d 个";

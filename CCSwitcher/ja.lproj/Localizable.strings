@@ -188,3 +188,14 @@
 "No accounts saved in CCSwitcher yet." = "CCSwitcher にアカウントがまだ保存されていません。";
 "No account matches %@. Available: %@" = "%1$@ に一致するアカウントがありません。使用可能：%2$@";
 "%@ matches several accounts: %@. Be more specific." = "%1$@ は複数のアカウントに一致します：%2$@。より具体的に指定してください。";
+
+
+// Quota pre-warm
+"Pre-warm" = "事前ウォームアップ";
+"Open the quota window every morning" = "毎朝クォータウィンドウを開く";
+"Warm up at" = "ウォームアップ時刻";
+"Weekdays only" = "平日のみ";
+"The 5-hour window is created by an account's first request, not by the clock — so starting work at 9am gives you a 9am–2pm window whose tail is spent at lunch. One tiny request at 8am puts the boundary at 1pm instead, where your lunch break already is. Every account is warmed where it stands; the active one is never switched." = "5 時間ウィンドウは時計ではなくアカウントの最初のリクエストによって作成されます。9 時に仕事を始めると 9:00–14:00 のウィンドウになり、その終盤は昼休みで消費されます。8 時に極小のリクエストを 1 回送れば境界は 13:00 になり、ちょうど昼休みと重なります。各アカウントはその場でウォームアップされ、アクティブなアカウントが切り替わることはありません。";
+"Warm up now" = "今すぐウォームアップ";
+"Warmed %1$d account(s) at %2$@" = "%2$@ に %1$d 個のアカウントをウォームアップしました";
+"Warmed %1$d, failed %2$d at %3$@" = "%3$@ に %1$d 個成功、%2$d 個失敗";

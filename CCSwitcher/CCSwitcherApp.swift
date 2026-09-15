@@ -81,6 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             await appState.refresh()
             appState.startAutoRefresh(interval: interval)
+            // Started after the first refresh so the account list is populated
+            // before a catch-up pre-warm could fire on it.
+            appState.startPrewarmScheduler()
         }
     }
 
