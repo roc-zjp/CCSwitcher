@@ -1,5 +1,7 @@
 # CCSwitcher Agent Guidelines
 
+**This is an independently-developed fork** — all work lands on `main`, upstream is merged in but never pushed to. Read [FORK.md](FORK.md) before branching, building, or merging upstream.
+
 **Rules**:
 - `project.yml` is the ONLY source of truth. NEVER edit `.pbxproj` or `Info.plist` directly. Run `xcodegen generate` after changes.
 - `CCSwitcher.xcodeproj` is disposable (git-ignored).

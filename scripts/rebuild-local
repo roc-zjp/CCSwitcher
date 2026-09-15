@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Re-stack the local signing patch onto main and build.
+#
+# `main` carries the upstream author's Apple Team ID, so it cannot be built as
+# is. `local/team-id` is one commit swapping in ours, kept as the tip so it can
+# be carried forward after every upstream merge. This script does that carry
+# and then builds, which is the whole local workflow in one command.
+#
+#   ./scripts/rebuild-local              build Release
+#   ./scripts/rebuild-local --check      compile only, no certificate needed
+#   ./scripts/rebuild-local --no-build   just re-stack the patch
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+PATCH_BRANCH="local/team-id"
+CONFIG="Release"
+BUILD=1
+UNSIGNED=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --check)    UNSIGNED=1 ;;
+        --no-build) BUILD=0 ;;
+        --debug)    CONFIG="Debug" ;;
+        *) echo "unknown option: $arg" >&2; exit 2 ;;
+    esac
+done
+
+if [ -n "$(git status --porcelain)" ]; then
+    echo "✗ working tree is dirty — commit or stash first" >&2
+    git status --short >&2
+    exit 1
+fi
+
+if ! git rev-parse --verify --quiet "$PATCH_BRANCH" >/dev/null; then
+    echo "✗ no $PATCH_BRANCH branch — nothing to re-stack" >&2
+    exit 1
+fi
+
+start_branch=$(git rev-parse --abbrev-ref HEAD)
+
+echo "▸ re-stacking $PATCH_BRANCH onto main"
+git checkout "$PATCH_BRANCH" >/dev/null 2>&1
+if ! git rebase main; then
+    echo "✗ rebase hit a conflict — resolve it, then: git rebase --continue" >&2
+    echo "  (upstream probably touched project.yml or the entitlements)" >&2
+    exit 1
+fi
+
+# The patch must stay the tip: it is per-developer config, and anything stacked
+# on top of it would have to be re-stacked too.
+if [ "$(git rev-list --count main.."$PATCH_BRANCH")" != "1" ]; then
+    echo "⚠️  $PATCH_BRANCH is $(git rev-list --count main.."$PATCH_BRANCH") commits ahead of main," >&2
+    echo "   expected exactly 1 (the signing patch). Real work belongs on main." >&2
+fi
+
+if [ "$BUILD" = "0" ]; then
+    echo "✓ patch re-stacked (skipping build)"
+    exit 0
+fi
+
+echo "▸ xcodegen generate"
+xcodegen generate >/dev/null
+
+echo "▸ building $CONFIG"
+args=(-project CCSwitcher.xcodeproj -scheme CCSwitcher -configuration "$CONFIG" build)
+if [ "$UNSIGNED" = "1" ]; then
+    args+=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="")
+fi
+
+if xcodebuild "${args[@]}" 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)"; then
+    :
+fi
+
+echo
+echo "started on $start_branch, now on $PATCH_BRANCH"
